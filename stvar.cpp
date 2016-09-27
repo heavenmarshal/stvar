@@ -22,35 +22,39 @@ void stvar::initThetaRho(const VectorXd& theta0)
 
 void stvar::forwardFilter()
 {
-  MatrixXd F, R, Rinv, Rinfo, solF;
+  MatrixXd F, Fl, R, Rinfo, solFl, lmat;
   MatrixXd finfo, fqinvf, C = C0;
-  VectorXd yvec, err, sole, bilFe, mvec = m0;
+  VectorXd yvec, err, sole, bilFle, madd, mvec = m0;
   double siter = s0, niter = n0, diter;
   double quade, quadQe;
-  LLTMd lltrinv;
+  LLTMd lltrinfo;
   for(int i = p, j=0; i != T; ++i,++j)
   {
     F = Ft[j];
     yvec = resp.col(i);
     err = yvec - F*mvec;
     R = C / dsys;
-    solF = lltcorrRes.solve(F)/siter;
+    lmat = R.llt().matrixL();
+    Fl = F * lmat;
+    solFl = lltcorrRes.solve(Fl)/siter;
+    finfo = Fl.transpose() * solFl;
+    bilFle = solFl.transpose() * err;
+    Rinfo = finfo + MatrixXd::Identity(p,p);
+    lltrinfo.compute(Rinfo);
+    if(lltrinfo.info() != Eigen::NumericalIssue)
+      error("Cholesky failure while filtering forward!");
+    
     sole = lltcorrRes.solve(err)/siter;
     quade = err.dot(sole);
-    bilFe = solF.transpose()*err;
-    finfo = F.transpose()*solF;
-    Rinv = R.ldlt().solve(MatrixXd::Identity(p,p));
-    Rinv.noalias() = Rinv + finfo;
-    lltrinv.compute(Rinv);
-    if(lltrinv.info() == Eigen::NumericalIssue)
-      error("Cholesky failure while filtering forward!");
+    madd = lltrinfo.solve(bilFle);
+    quadQe = bilFle.transpose() * madd;
 
-    quadQe = bilFe.dot(lltrinv.solve(bilFe));
-    Rinfo = lltrinv.solve(finfo);
-    fqinvf = finfo - finfo*Rinfo;
-    C = R - R*fqinvf*R;
+    madd.noalias() = bilFle - finfo * madd;
+    madd.noalias() = lmat * madd;
+    mvec += madd;
+    fqinvf = finfo * lltrinfo.solve(finfo);
+    C = R - lmat * fqinvf * lmat.transpose();
     C /= siter;
-    mvec = mvec + R*bilFe - R*Rinfo.transpose()*bilFe;
     diter = dobs * niter * siter;
     diter += siter*(quade-quadQe);
     niter = dobs * niter + n;
@@ -80,7 +84,7 @@ void stvar::forwardSmooth()
     Fl = F * lmat;
     solFl = lltcorrRes.solve(Fl)/vVar[j];
     finfo = Fl.transpose() * solFl;
-    bilFle = solFle.transpose() * err;
+    bilFle = solFl.transpose() * err;
     Rinfo = finfo + MatrixXd::Identity(p,p);
     lltrinfo.compute(Rinfo);
     if(lltrinfo.info() != Eigen::NumericalIssue)
