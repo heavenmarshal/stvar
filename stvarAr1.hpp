@@ -46,6 +46,8 @@ public:
   void tvarmcmc();
   void predict(const MatrixXd&, const MatrixXd&, double*, double*);
   void tvarpredict(const MatrixXd&, const MatrixXd&, double*);
+  void getThetaRho(double*){};	// temporary
+  void getPhi(double*){};	// temporary
 private:
   double C0, m0;
   VectorXd rho;

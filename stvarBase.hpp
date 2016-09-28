@@ -3,7 +3,7 @@
 #include<Eigen/Dense>
 #include<Eigen/Core>
 #include<vector>
-#include"kernel.h"
+#include"kernel.hpp"
 #include"correlation.h"
 #include"distb.h"
 
@@ -40,6 +40,8 @@ public:
   virtual void tvarmcmc(){};
   virtual void predict(const MatrixXd&, const MatrixXd&, double*, double*){};
   virtual void tvarpredict(const MatrixXd&, const MatrixXd&, double*){};
+  virtual void getThetaRho(double*){};
+  virtual void getPhi(double*){};
   virtual ~stvarBase()
     {
       delete pcorrRho;

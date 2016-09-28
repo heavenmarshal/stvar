@@ -13,7 +13,8 @@ void stvar_R(const double* xmat_, const double* resp_, const int* n_, const int*
 	     const double *parKerRes_, const int* lenKerRes_,
 	     const double *thetaRes0_, const double *thetaRho0_,
 	     const double* C0_, const double *m0_, const double *newx_,
-	     const double* newystart_, const int* newn_, double* predout_, double* rho_)
+	     const double* newystart_, const int* newn_, double* predout_, double* rho_,
+	     double* thetarho_, double* phi_)
   {
     int n = *n_, T = *T_, d = *d_, p = *p_;
     Mmat xmat(xmat_, n, d);
@@ -43,8 +44,9 @@ void stvar_R(const double* xmat_, const double* resp_, const int* n_, const int*
     pstvar -> mcmc();
     Mmat newx(newx_,*newn_,d);
     Mmat newystart(newystart_, *newn_, p);
-    vector<MatrixXd> predout;
     pstvar -> predict(newx,newystart,predout_,rho_);
+    pstvar -> getThetaRho(thetarho_);
+    pstvar -> getPhi(phi_);
   }
   void tvar_R(const double* xmat_, const double* resp_, const int* n_, const int* T_,
 	      const int *d_, const int *p_, const double *delta_, const double* s0_,

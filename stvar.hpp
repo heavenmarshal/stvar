@@ -53,6 +53,8 @@ public:
   void tvarmcmc();
   void predict(const MatrixXd&, const MatrixXd&, double*, double*);
   void tvarpredict(const MatrixXd&, const MatrixXd&, double*);
+  void getThetaRho(double*);
+  void getPhi(double*);
 private:
   
   Mmat C0;

@@ -4,7 +4,10 @@
 #include<Rmath.h>
 #include<algorithm>
 #include<stdexcept>
-#include<iostream>
+#define DEBUG
+using Eigen::LDLT;
+typedef LDLT<MatrixXd> LDLTMd;
+
 void stvar::initThetaRho(const VectorXd& theta0)
 {
   MatrixXd corrrho(n,n), preccorr;
@@ -22,45 +25,41 @@ void stvar::initThetaRho(const VectorXd& theta0)
 
 void stvar::forwardFilter()
 {
-  MatrixXd F, Fl, R, Rinfo, solFl, lmat;
+  MatrixXd F, R, Rinv, Rinfo, solF;
   MatrixXd finfo, fqinvf, C = C0;
-  VectorXd yvec, err, sole, bilFle, madd, mvec = m0;
+  VectorXd yvec, err, sole, bilFe, mvec = m0;
   double siter = s0, niter = n0, diter;
   double quade, quadQe;
-  LLTMd lltrinfo;
+  LDLTMd lltrinv;
   for(int i = p, j=0; i != T; ++i,++j)
   {
     F = Ft[j];
     yvec = resp.col(i);
     err = yvec - F*mvec;
-    R = C / dsys;
-    lmat = R.llt().matrixL();
-    Fl = F * lmat;
-    solFl = lltcorrRes.solve(Fl)/siter;
-    finfo = Fl.transpose() * solFl;
-    bilFle = solFl.transpose() * err;
-    Rinfo = finfo + MatrixXd::Identity(p,p);
-    lltrinfo.compute(Rinfo);
-    if(lltrinfo.info() != Eigen::NumericalIssue)
-      error("Cholesky failure while filtering forward!");
-    
+    R = C/dsys;
+    solF = lltcorrRes.solve(F)/siter;
     sole = lltcorrRes.solve(err)/siter;
     quade = err.dot(sole);
-    madd = lltrinfo.solve(bilFle);
-    quadQe = bilFle.transpose() * madd;
+    bilFe = solF.transpose()*err;
+    finfo = F.transpose()*solF;
+    Rinv = R.ldlt().solve(MatrixXd::Identity(p,p));
+    Rinv.noalias() = Rinv + finfo;
+    lltrinv.compute(Rinv);
+    if(lltrinv.info() != Eigen::Success)
+      error("Cholesky failure while filtering forward!");
 
-    madd.noalias() = bilFle - finfo * madd;
-    madd.noalias() = lmat * madd;
-    mvec += madd;
-    fqinvf = finfo * lltrinfo.solve(finfo);
-    C = R - lmat * fqinvf * lmat.transpose();
+    quadQe = bilFe.dot(lltrinv.solve(bilFe));
+    Rinfo = lltrinv.solve(finfo);
+    fqinvf = finfo - finfo*Rinfo;
+    C = R - R*fqinvf*R;
     C /= siter;
+    mvec += R*bilFe - R*Rinfo.transpose()*bilFe;
     diter = dobs * niter * siter;
     diter += siter*(quade-quadQe);
     niter = dobs * niter + n;
     siter = diter/niter;
-    C *= siter;
     C.noalias() = 0.5*(C+C.transpose());
+    C *= siter;
     Ct[j] = C;
     mt[j] = mvec;
     nt[j] = niter;
@@ -70,36 +69,35 @@ void stvar::forwardFilter()
 
 void stvar::forwardSmooth()
 {
-  MatrixXd F, Fl, R, Rinfo, solFl, lmat;
+  MatrixXd F, R, Rinv, Rinfo, solF;
   MatrixXd finfo, fqinvf, C = C0;
-  VectorXd yvec, err, bilFle, madd, mvec = m0;
-  LLTMd lltrinfo;
+  VectorXd yvec, err, bilFe, mvec = m0;
+  LDLTMd lltrinv;
   for(int i = p, j = 0; i != T; ++i, ++j)
   {
     F = Ft[j];
     yvec = resp.col(i);
     err = yvec - F*mvec;
     R = C/dsys;
-    lmat = R.llt().matrixL();
-    Fl = F * lmat;
-    solFl = lltcorrRes.solve(Fl)/vVar[j];
-    finfo = Fl.transpose() * solFl;
-    bilFle = solFl.transpose() * err;
-    Rinfo = finfo + MatrixXd::Identity(p,p);
-    lltrinfo.compute(Rinfo);
-    if(lltrinfo.info() != Eigen::NumericalIssue)
+    solF = lltcorrRes.solve(F)/vVar[j];
+    bilFe = solF.transpose()*err;
+    finfo = F.transpose()*solF;
+    Rinv = R.ldlt().solve(MatrixXd::Identity(p,p));
+    Rinv.noalias() = Rinv + finfo;
+    lltrinv.compute(Rinv);
+    if(lltrinv.info() != Eigen::Success)
       error("Cholesky failure while smoothing forward!");
+    Rinfo = lltrinv.solve(finfo);
+    fqinvf = finfo - finfo*Rinfo;
 
-    madd = bilFle - finfo * lltrinfo.solve(bilFle);
-    madd.noalias() = lmat * madd;
-    mvec += madd;
-    fqinvf = finfo * lltrinfo.solve(finfo);
-    C = R - lmat * fqinvf * lmat.transpose();
+    mvec += R*bilFe - R*Rinfo.transpose()*bilFe;
+    C = R - R*fqinvf*R;
     C.noalias() = 0.5*(C+C.transpose());
     mt[j] = mvec;
     Ct[j] = C;
   }
 }
+
 void stvar::tvarForwardFilter()
 {
   MatrixXd F, R, Rinv, Rinfo, solF;
@@ -263,7 +261,7 @@ void stvar::formSpx()
   mvar = 0.0;
   for(i = 0; i != Tinf; ++i)
   {
-    spx += Ft[i].cwiseProduct(vPhi[i].transpose().replicate(n,1));
+    spx += resp.block(0,i,n,p).cwiseProduct(vPhi[i].transpose().replicate(n,1));
     mvar += vVar[i];
   }
   spx /= (double)Tinf;
@@ -297,13 +295,13 @@ void stvar::drawRho()
     newcoefi = spx.col(i).cwiseProduct(newrho);
     for(j = 0; j != i; ++j)	// evade in loop if
     {
-      resid = spresid[i] + coefi - newcoefi;
-      spresid[i] = resid;
+      resid = spresid[j] + coefi - newcoefi;
+      spresid[j] = resid;
     }
-    for(j = i+1; j != p; ++j);
+    for(j = i+1; j != p; ++j)
     {
-      resid = spresid[i] + coefi - newcoefi;
-      spresid[i] = resid;
+      resid = spresid[j] + coefi - newcoefi;
+      spresid[j] = resid;
     }
     loglikRho[i] = stvarBase::evalLogLikRho(thetaRho[i],newrho,corrrho,lltofrho);
     rho.col(i) = newrho;
@@ -311,7 +309,7 @@ void stvar::drawRho()
   for(i = 0; i != Tinf; ++i)
     Ft[i] = resp.block(0, i, n, p).cwiseProduct(rho);
 }
-
+#ifndef DEBUG
 void stvar::drawThetaRho()
 {
   VectorXd newtheta, rhoi;
@@ -344,6 +342,40 @@ void stvar::drawThetaRho()
     }
   }
 }
+#else
+void stvar::drawThetaRho()
+{
+  VectorXd newtheta(d), rhoi;
+  double newthetaj, newlogpri=0.0, ologpri = 0.0, newloglik;
+  double logforden=0.0, logbackden=0.0, logratio;
+  MatrixXd newcorr(n,n);
+  LLTMd lltofCorr;
+  double u;
+  for(int i = 0; i != p; ++i)
+  {
+    rhoi = rho.col(i);
+    for(int j = 0; j != d; ++j)
+    {
+      newthetaj = pKerThetaRho -> draw(thetaRho[i](j));
+      newlogpri += priThetaRho -> logpdf(newthetaj);
+      logforden += pKerThetaRho -> logdensity(thetaRho[i](j),newthetaj);
+      logbackden += pKerThetaRho -> logdensity(newthetaj,thetaRho[i](j));
+      newtheta(j) = newthetaj;
+      ologpri += priThetaRho -> logpdf(thetaRho[i](j));
+    }
+    newloglik = stvarBase::evalLogLikRho(newtheta, rhoi, newcorr, lltofCorr);
+    logratio = newloglik - loglikRho[i] + newlogpri - ologpri;
+    logratio += logbackden - logforden;
+    u = runif(0.0, 1.0);
+    if(log(u)<logratio)
+    {
+      thetaRho[i] = newtheta;
+      loglikRho[i] = newloglik;
+      precRho[i] = lltofCorr.solve(MatrixXd::Identity(n,n));
+    }
+  }
+}
+#endif
 // double stvar::evalLogLikRho(const VectorXd& rho, int i)
 // {
 //   MatrixXd lmat;
@@ -457,4 +489,23 @@ void stvar::tvarpredict(const MatrixXd& newx, const MatrixXd& newystart,
     }
     std::copy(pred.data(), pred.data()+bpred, curpred);
   }
+}
+void stvar::getThetaRho(double* rhoOut)
+{
+  vvVecd::const_iterator citerout;
+  vector<VectorXd>::const_iterator citerin;
+  double *cursor = rhoOut;
+  for(citerout = hthetaRho.begin(); citerout != hthetaRho.end(); ++citerout)
+    for(citerin = (*citerout).begin(); citerin != (*citerout).end(); ++citerin, cursor += d)
+      std::copy((*citerin).data(),(*citerin).data()+d,cursor);
+}
+void stvar::getPhi(double* phiout)
+{
+  vvVecd::const_iterator citerout;
+  vector<VectorXd>::const_iterator citerin;
+  double *cursor = phiout;
+
+  for(citerout =  hvPhi.begin(); citerout != hvPhi.end(); ++citerout)
+    for(citerin = (*citerout).begin(); citerin != (*citerout).end(); ++citerin, cursor += p)
+      std::copy((*citerin).data(),(*citerin).data()+p,cursor);
 }
